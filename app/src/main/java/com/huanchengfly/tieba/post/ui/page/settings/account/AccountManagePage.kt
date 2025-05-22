@@ -1,5 +1,6 @@
 package com.huanchengfly.tieba.post.ui.page.settings.account
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -51,7 +52,9 @@ import com.huanchengfly.tieba.post.utils.appPreferences
 import com.huanchengfly.tieba.post.utils.launchUrl
 import com.ramcosta.composedestinations.annotation.Destination
 import com.ramcosta.composedestinations.navigation.DestinationsNavigator
-
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+@SuppressLint("CoroutineCreationDuringComposition")
 @OptIn(ExperimentalMaterialApi::class, ExperimentalComposeUiApi::class)
 @Destination
 @Composable
@@ -76,6 +79,7 @@ fun AccountManagePage(
     ) { paddingValues ->
         val account = LocalAccount.current
         val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         PrefsScreen(
             dataStore = LocalContext.current.dataStore,
             dividerThickness = 0.dp,
@@ -166,7 +170,12 @@ fun AccountManagePage(
             prefsItem {
                 TextPref(
                     title = stringResource(id = R.string.title_exit_account),
-                    onClick = { AccountUtil.exit(context) },
+                    onClick = {
+
+                        scope.launch {
+                            AccountUtil.exit(context)
+                        }
+                    },
                     leadingIcon = {
                         LeadingIcon {
                             AvatarIcon(

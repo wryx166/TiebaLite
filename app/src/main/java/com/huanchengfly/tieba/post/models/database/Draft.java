@@ -1,16 +1,22 @@
 package com.huanchengfly.tieba.post.models.database;
 
-import org.litepal.crud.LitePalSupport;
+import androidx.annotation.NonNull;
+import androidx.room.Entity;
+import androidx.room.PrimaryKey;
 
-public class Draft extends LitePalSupport {
+@Entity(tableName = "draft")
+public class Draft {
+    @PrimaryKey
+    @NonNull
     private String hash;
     private String content;
 
-    public Draft(String hash, String content) {
+    public Draft(@NonNull String hash, String content) {
         this.hash = hash;
         this.content = content;
     }
 
+    @NonNull
     public String getHash() {
         return hash;
     }

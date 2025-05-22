@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
@@ -105,6 +106,8 @@ import com.huanchengfly.tieba.post.utils.ImageUtil
 import com.huanchengfly.tieba.post.utils.TiebaUtil
 import com.huanchengfly.tieba.post.utils.appPreferences
 import kotlinx.collections.immutable.persistentListOf
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.huanchengfly.tieba.post.models.database.TopForumDao
 
 private fun getGridCells(
     context: Context,
@@ -388,7 +391,7 @@ private fun ForumItem(
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
 fun HomePage(
-    viewModel: HomeViewModel = pageViewModel<HomeUiIntent, HomeViewModel>(listOf(HomeUiIntent.Refresh)),
+    viewModel: HomeViewModel = hiltViewModel(),
     canOpenExplore: Boolean = false,
     onOpenExplore: () -> Unit = {},
 ) {

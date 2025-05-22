@@ -4,7 +4,6 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.util.Log
 import android.view.View
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -89,7 +88,6 @@ import com.huanchengfly.tieba.post.arch.emitGlobalEvent
 import com.huanchengfly.tieba.post.arch.onEvent
 import com.huanchengfly.tieba.post.arch.onGlobalEvent
 import com.huanchengfly.tieba.post.arch.pageViewModel
-import com.huanchengfly.tieba.post.models.database.Draft
 import com.huanchengfly.tieba.post.pxToDpFloat
 import com.huanchengfly.tieba.post.toMD5
 import com.huanchengfly.tieba.post.toastShort
@@ -106,7 +104,6 @@ import com.huanchengfly.tieba.post.ui.widgets.compose.DialogPositiveButton
 import com.huanchengfly.tieba.post.ui.widgets.compose.DialogState
 import com.huanchengfly.tieba.post.ui.widgets.compose.MyBackHandler
 import com.huanchengfly.tieba.post.ui.widgets.compose.VerticalDivider
-import com.huanchengfly.tieba.post.ui.widgets.compose.debounceClickable
 import com.huanchengfly.tieba.post.ui.widgets.compose.rememberDialogState
 import com.huanchengfly.tieba.post.ui.widgets.edittext.widget.UndoableEditText
 import com.huanchengfly.tieba.post.utils.AccountUtil
@@ -126,13 +123,8 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
-import org.litepal.LitePal
-import org.litepal.extension.deleteAllAsync
-import org.litepal.extension.findFirstAsync
 import java.util.UUID
-import kotlin.concurrent.thread
 import kotlin.math.max
 
 data class ReplyArgs(
@@ -267,26 +259,19 @@ internal fun ReplyPageContent(
 
     val curTextFlow = remember { MutableStateFlow("") }
     val curText by curTextFlow.collectAsState()
-    LaunchedEffect(Unit) {
-        curTextFlow
-            .sample(500)
-            .distinctUntilChanged()
-            .collect {
-                Log.i("ReplyPage", "collect: $it")
-                if (!replySuccess) {
-                    thread {
-                        Draft(hash, it).saveOrUpdate("hash = ?", hash)
-                    }
-                }
-            }
+    // 用 Room 替换 LitePal 的草稿保存
+    LaunchedEffect(curText, replySuccess) {
+        if (!replySuccess) {
+            viewModel.saveDraft(hash, curText)
+        }
     }
+    // 用 Room 替换 LitePal 的草稿读取
     LaunchedEffect(Unit) {
-        LitePal.where("hash = ?", hash).findFirstAsync<Draft?>()
-            .listen {
-                if (it != null) {
-                    setText(it.content)
-                }
+        viewModel.loadDraft(hash) { content ->
+            if (content.isNotEmpty()) {
+                setText(content)
             }
+        }
     }
     val textLength by remember { derivedStateOf { curText.length } }
     val isTextEmpty by remember { derivedStateOf { curText.isEmpty() } }
@@ -306,7 +291,7 @@ internal fun ReplyPageContent(
         } else {
             context.toastShort(R.string.toast_reply_success, it.expInc)
         }
-        LitePal.deleteAllAsync<Draft>("hash = ?", hash).listen { onBack() }
+        viewModel.deleteDraft(hash) { onBack() }
     }
 
     var waitUploadSuccessToSend by remember { mutableStateOf(false) }

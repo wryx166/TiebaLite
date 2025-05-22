@@ -1,10 +1,13 @@
 package com.huanchengfly.tieba.post.models.database
 
 import androidx.compose.runtime.Stable
-import org.litepal.crud.LitePalSupport
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 
 @Stable
-data class Account @JvmOverloads constructor(
+@Entity(tableName = "account")
+data class Account (
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
     var uid: String = "",
     var name: String = "",
     var bduss: String = "",
@@ -28,6 +31,4 @@ data class Account @JvmOverloads constructor(
     var loadSuccess: Boolean = false,
     var uuid: String? = "",
     var zid: String? = "",
-) : LitePalSupport() {
-    val id: Int = 0
-}
+)

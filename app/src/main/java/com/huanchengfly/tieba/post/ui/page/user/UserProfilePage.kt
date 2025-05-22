@@ -246,6 +246,7 @@ private fun UserProfileToolbar(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     Toolbar(
         title = {
@@ -266,15 +267,17 @@ private fun UserProfileToolbar(
                     menuContent = {
                         DropdownMenuItem(
                             onClick = {
-                                BlockManager.addBlockAsync(
-                                    Block(
-                                        category = Block.CATEGORY_BLACK_LIST,
-                                        type = Block.TYPE_USER,
-                                        username = it.get { name },
-                                        uid = it.get { id }.toString()
+
+                                coroutineScope.launch {
+                                    BlockManager.addBlock(
+                                        Block(
+                                            category = Block.CATEGORY_BLACK_LIST,
+                                            type = Block.TYPE_USER,
+                                            username = it.get { name },
+                                            uid = it.get { id }.toString()
+                                        )
                                     )
-                                ) {
-                                    if (it) context.toastShort(R.string.toast_add_success)
+                                    context.toastShort(R.string.toast_add_success)
                                 }
                             }
                         ) {
@@ -282,15 +285,17 @@ private fun UserProfileToolbar(
                         }
                         DropdownMenuItem(
                             onClick = {
-                                BlockManager.addBlockAsync(
-                                    Block(
-                                        category = Block.CATEGORY_WHITE_LIST,
-                                        type = Block.TYPE_USER,
-                                        username = it.get { name },
-                                        uid = it.get { id }.toString()
+                                coroutineScope.launch {
+                                    BlockManager.addBlock(
+                                        Block(
+                                            category = Block.CATEGORY_WHITE_LIST,
+                                            type = Block.TYPE_USER,
+                                            username = it.get { name },
+                                            uid = it.get { id }.toString()
+                                        )
                                     )
-                                ) {
-                                    if (it) context.toastShort(R.string.toast_add_success)
+                                    context.toastShort(R.string.toast_add_success)
+
                                 }
                             }
                         ) {

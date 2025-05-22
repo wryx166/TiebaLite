@@ -12,6 +12,8 @@ import com.huanchengfly.tieba.post.arch.UiEvent
 import com.huanchengfly.tieba.post.arch.UiIntent
 import com.huanchengfly.tieba.post.arch.UiState
 import com.huanchengfly.tieba.post.models.database.Account
+import com.huanchengfly.tieba.post.models.database.AccountDao
+import com.huanchengfly.tieba.post.utils.AccountConstants
 import com.huanchengfly.tieba.post.utils.AccountUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -20,19 +22,22 @@ import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flatMapConcat
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onStart
 import javax.inject.Inject
 
 @Stable
 @HiltViewModel
-class UserViewModel @Inject constructor() : BaseViewModel<UserUiIntent, UserPartialChange, UserUiState, UserUiEvent>() {
-    override fun createInitialState(): UserUiState =
-        UserUiState()
+class UserViewModel @Inject constructor(
+    private val accountDao: AccountDao
+) : BaseViewModel<UserUiIntent, UserPartialChange, UserUiState, UserUiEvent>() {
+    override fun createInitialState(): UserUiState = UserUiState()
 
     override fun createPartialChangeProducer(): PartialChangeProducer<UserUiIntent, UserPartialChange, UserUiState> =
-        UserPartialChangeProducer
+        UserPartialChangeProducer(accountDao)
 
     override fun dispatchEvent(partialChange: UserPartialChange): UiEvent? =
         when (partialChange) {
@@ -40,58 +45,50 @@ class UserViewModel @Inject constructor() : BaseViewModel<UserUiIntent, UserPart
             else -> null
         }
 
-    object UserPartialChangeProducer :PartialChangeProducer<UserUiIntent, UserPartialChange, UserUiState> {
+    class UserPartialChangeProducer(
+        private val accountDao: AccountDao
+    ) :PartialChangeProducer<UserUiIntent, UserPartialChange, UserUiState> {
         @OptIn(ExperimentalCoroutinesApi::class)
         override fun toPartialChangeFlow(intentFlow: Flow<UserUiIntent>): Flow<UserPartialChange> =
             merge(
                 intentFlow.filterIsInstance<UserUiIntent.Refresh>().flatMapConcat { it.toPartialChangeFlow() }
             )
 
-        private fun UserUiIntent.Refresh.toPartialChangeFlow(): Flow<UserPartialChange> {
+        private fun UserUiIntent.Refresh.toPartialChangeFlow(): Flow<UserPartialChange> = flow {
             val account = AccountUtil.currentAccount
-            return if (account == null) {
-                listOf(UserPartialChange.Refresh.NotLogin).asFlow()
+            if (account == null) {
+                emit(UserPartialChange.Refresh.NotLogin)
             } else {
-                TiebaApi.getInstance()
-                    .userProfileFlow(account.uid.toLong())
-                    .map<ProfileResponse, UserPartialChange> { profile ->
-                        val user = checkNotNull(profile.data_?.user)
-                        account.apply {
-                            nameShow = user.nameShow
-                            portrait = user.portrait
-                            intro = user.intro
-                            sex = user.sex.toString()
-                            fansNum = user.fans_num.toString()
-                            postNum = user.post_num.toString()
-                            threadNum = user.thread_num.toString()
-                            concernNum = user.concern_num.toString()
-                            tbAge = user.tb_age
-                            age = user.birthday_info?.age?.toString()
-                            birthdayShowStatus =
-                                user.birthday_info?.birthday_show_status?.toString()
-                            birthdayTime = user.birthday_info?.birthday_time?.toString()
-                            constellation = user.birthday_info?.constellation
-                            tiebaUid = user.tieba_uid
-                            loadSuccess = true
-                            updateAll("uid = ?", uid)
-                        }
-                        UserPartialChange.Refresh.Success(account = account)
+                emit(UserPartialChange.Refresh.Start)
+                if (account.loadSuccess) {
+                    emit(UserPartialChange.Refresh.Success(account = account, isLocal = true))
+                }
+                try {
+                    val profile = TiebaApi.getInstance().userProfileFlow(account.uid.toLong()).first()
+                    val user = checkNotNull(profile.data_?.user)
+                    account.apply {
+                        nameShow = user.nameShow
+                        portrait = user.portrait
+                        intro = user.intro
+                        sex = user.sex.toString()
+                        fansNum = user.fans_num.toString()
+                        postNum = user.post_num.toString()
+                        threadNum = user.thread_num.toString()
+                        concernNum = user.concern_num.toString()
+                        tbAge = user.tb_age
+                        age = user.birthday_info?.age?.toString()
+                        birthdayShowStatus = user.birthday_info?.birthday_show_status?.toString()
+                        birthdayTime = user.birthday_info?.birthday_time?.toString()
+                        constellation = user.birthday_info?.constellation
+                        tiebaUid = user.tieba_uid
+                        loadSuccess = true
                     }
-                    .onStart {
-                        emit(UserPartialChange.Refresh.Start)
-                        if (account.loadSuccess) {
-                            emit(
-                                UserPartialChange.Refresh.Success(
-                                    account = account,
-                                    isLocal = true
-                                )
-                            )
-                        }
-                    }
-                    .catch {
-                        it.printStackTrace()
-                        emit(UserPartialChange.Refresh.Failure(errorMessage = it.getErrorMessage()))
-                    }
+                    accountDao.updateAccount(account)
+                    emit(UserPartialChange.Refresh.Success(account = account))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    emit(UserPartialChange.Refresh.Failure(errorMessage = e.getErrorMessage()))
+                }
             }
         }
     }

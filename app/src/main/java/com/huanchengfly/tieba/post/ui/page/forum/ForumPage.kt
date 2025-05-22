@@ -483,8 +483,7 @@ fun ForumPage(
                     type = HistoryUtil.TYPE_FORUM,
                     data = forum.name,
                     extras = Json.encodeToString(ForumHistoryExtra(forum.id))
-                ),
-                true
+                )
             )
         }
     }

@@ -17,6 +17,8 @@ import com.huanchengfly.tieba.post.api.models.LoginBean
 import com.huanchengfly.tieba.post.arch.GlobalEvent
 import com.huanchengfly.tieba.post.arch.emitGlobalEvent
 import com.huanchengfly.tieba.post.models.database.Account
+import com.huanchengfly.tieba.post.models.database.AccountDao
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -28,15 +30,21 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.zip
 import kotlinx.coroutines.launch
-import org.litepal.LitePal
-import org.litepal.LitePal.findAll
-import org.litepal.LitePal.where
-import org.litepal.extension.findAllAsync
-import org.litepal.extension.findFirst
+import kotlinx.coroutines.withContext
 import java.util.UUID
+import androidx.core.content.edit
 
 @Stable
 object AccountUtil {
+    private lateinit var accountDao: AccountDao
+
+    fun init(accountDao: AccountDao) {
+        this.accountDao = accountDao
+    }
+
+    val dao: AccountDao
+        get() = accountDao
+
     const val TAG = "AccountUtil"
     const val ACTION_SWITCH_ACCOUNT = "com.huanchengfly.tieba.post.action.SWITCH_ACCOUNT"
 
@@ -57,25 +65,23 @@ object AccountUtil {
 
     @set:Synchronized
     private var mutableCurrentAccountState: MutableState<Account?> = mutableStateOf(null)
-
     private var mutableAllAccountsState: MutableState<List<Account>> = mutableStateOf(emptyList())
 
-    val currentAccount
-        get() = mutableCurrentAccountState.value
+    val currentAccount get() = AccountConstants.currentAccount.value
+    val allAccounts: List<Account> get() = mutableAllAccountsState.value
 
-    val allAccounts: List<Account>
-        get() = mutableAllAccountsState.value
-
+    @OptIn(DelicateCoroutinesApi::class)
     fun init(context: Context) {
-        val account = runCatching {
+        GlobalScope.launch(Dispatchers.IO) {
             val loginUser =
                 context.getSharedPreferences("accountData", Context.MODE_PRIVATE).getInt("now", -1)
-            if (loginUser == -1) {
-                null
-            } else getAccountInfo(loginUser)
-        }.getOrNull()
-        mutableCurrentAccountState.value = account
-        mutableAllAccountsState.value = findAll(Account::class.java)
+            val account = if (loginUser == -1) null else accountDao.getById(loginUser)
+            val all = accountDao.getAll()
+            withContext(Dispatchers.Main) {
+                mutableCurrentAccountState.value = account
+                mutableAllAccountsState.value = all
+            }
+        }
     }
 
     @JvmStatic
@@ -88,25 +94,35 @@ object AccountUtil {
         return currentAccount?.getter()
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     fun newAccount(uid: String, account: Account, callback: (Boolean) -> Unit) {
-        account.saveOrUpdateAsync("uid = ?", uid).listen {
-            mutableAllAccountsState.value = findAll(Account::class.java)
-            callback(it)
+        GlobalScope.launch(Dispatchers.IO) {
+            val existing = accountDao.getByUid(account.uid)
+            if (existing == null) {
+                accountDao.insert(account)
+            } else {
+                accountDao.update(account)
+            }
+            val all = accountDao.getAll()
+            withContext(Dispatchers.Main) {
+                mutableAllAccountsState.value = all
+                callback(true)
+            }
         }
     }
 
-    private fun getAccountInfo(accountId: Int): Account {
-        return where("id = ?", accountId.toString()).findFirst(Account::class.java)
+    private suspend fun getAccountInfo(accountId: Int): Account? {
+        return accountDao.getById(accountId)
     }
 
     @JvmStatic
-    fun getAccountInfoByUid(uid: String): Account? {
-        return where("uid = ?", uid).findFirst<Account>()
+    suspend fun getAccountInfoByUid(uid: String): Account? {
+        return accountDao.getByUid(uid)
     }
 
     @JvmStatic
-    fun getAccountInfoByBduss(bduss: String): Account {
-        return where("bduss = ?", bduss).findFirst(Account::class.java)
+    suspend fun getAccountInfoByBduss(bduss: String): Account? {
+        return accountDao.getByBduss(bduss)
     }
 
     @JvmStatic
@@ -114,16 +130,23 @@ object AccountUtil {
         return getLoginInfo() != null
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     @JvmStatic
     fun switchAccount(context: Context, id: Int): Boolean {
         context.sendBroadcast(Intent().setAction(ACTION_SWITCH_ACCOUNT))
-        val account = runCatching { getAccountInfo(id) }.getOrNull() ?: return false
-        mutableCurrentAccountState.value = account
-        GlobalScope.launch {
-            emitGlobalEvent(GlobalEvent.AccountSwitched)
+        GlobalScope.launch(Dispatchers.IO) {
+            val account = getAccountInfo(id)
+            withContext(Dispatchers.Main) {
+                if (account != null) {
+                    mutableCurrentAccountState.value = account
+                    GlobalScope.launch { emitGlobalEvent(GlobalEvent.AccountSwitched) }
+                    context.getSharedPreferences("accountData", Context.MODE_PRIVATE).edit(commit = true) {
+                        putInt("now", id)
+                    }
+                }
+            }
         }
-        return context.getSharedPreferences("accountData", Context.MODE_PRIVATE).edit()
-            .putInt("now", id).commit()
+        return true
     }
 
     private fun updateAccount(
@@ -143,7 +166,7 @@ object AccountUtil {
         return fetchAccountFlow(account.bduss, account.sToken, account.cookie)
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class, DelicateCoroutinesApi::class)
     fun fetchAccountFlow(
         bduss: String,
         sToken: String,
@@ -158,13 +181,13 @@ object AccountUtil {
                     this.cookie = cookie ?: getBdussCookie(bduss)
                     updateAccount(this, loginBean)
                 } ?: Account(
-                    loginBean.user.id,
-                    loginBean.user.name,
-                    bduss,
-                    loginBean.anti.tbs,
-                    loginBean.user.portrait,
-                    sToken,
-                    cookie ?: getBdussCookie(bduss),
+                    uid = loginBean.user.id,
+                    name = loginBean.user.name,
+                    bduss = bduss,
+                    tbs = loginBean.anti.tbs,
+                    portrait =  loginBean.user.portrait,
+                    sToken =  sToken,
+                    cookie =  cookie ?: getBdussCookie(bduss),
                 )
             }
             .zip(SofireUtils.fetchZid()) { account, zid ->
@@ -185,13 +208,18 @@ object AccountUtil {
                     }
             }
             .onEach { account ->
-                account.saveOrUpdateAsync("uid = ?", account.uid)
-                    .listen {
-                        LitePal.findAllAsync<Account>()
-                            .listen {
-                                mutableAllAccountsState.value = it
-                            }
+                GlobalScope.launch(Dispatchers.IO) {
+                    val existing = accountDao.getByUid(account.uid)
+                    if (existing == null) {
+                        accountDao.insert(account)
+                    } else {
+                        accountDao.update(account)
                     }
+                    val all = accountDao.getAll()
+                    withContext(Dispatchers.Main) {
+                        mutableAllAccountsState.value = all
+                    }
+                }
             }
             .flowOn(Dispatchers.IO)
     }
@@ -205,36 +233,41 @@ object AccountUtil {
     }
 
     @JvmStatic
-    fun updateLoginInfo(cookie: String): Boolean {
+    suspend fun updateLoginInfo(cookie: String): Boolean {
         val cookies = parseCookie(cookie).mapKeys { it.key.uppercase() }
         val bduss = cookies["BDUSS"]
         val sToken = cookies["STOKEN"]
         if (bduss != null && sToken != null) {
             val account = getAccountInfoByBduss(bduss)
-            account.apply {
+            account?.apply {
                 this.sToken = sToken
                 this.cookie = cookie
-            }.update(account.id.toLong())
+                accountDao.insertOrUpdate(this)
+            }
             return true
         }
         return false
     }
 
-    fun exit(context: Context) {
-        var accounts = allAccounts
-        var account = getLoginInfo() ?: return
-        account.delete()
-        CookieManager.getInstance().removeAllCookies(null)
-        if (accounts.size > 1) {
-            accounts = allAccounts
-            account = accounts[0]
-            switchAccount(context, account.id)
-            Toast.makeText(context, "退出登录成功，已切换至账号 " + account.nameShow, Toast.LENGTH_SHORT).show()
-            return
+    @OptIn(DelicateCoroutinesApi::class)
+    suspend fun exit(context: Context) {
+        GlobalScope.launch(Dispatchers.IO) {
+            var accounts = allAccounts
+            var account = getLoginInfo() ?: return@launch
+            accountDao.delete(account)
+            CookieManager.getInstance().removeAllCookies(null)
+            withContext(Dispatchers.Main) {
+                if (accounts.isNotEmpty()) {
+                    val next = accounts[0]
+                    switchAccount(context, next.id)
+                    Toast.makeText(context, "退出登录成功，已切换至账号 " + next.nameShow, Toast.LENGTH_SHORT).show()
+                } else {
+                    mutableCurrentAccountState.value = null
+                    context.getSharedPreferences("accountData", Context.MODE_PRIVATE).edit(commit = true) { clear() }
+                    Toast.makeText(context, R.string.toast_exit_account_success, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
-        mutableCurrentAccountState.value = null
-        context.getSharedPreferences("accountData", Context.MODE_PRIVATE).edit().clear().commit()
-        Toast.makeText(context, R.string.toast_exit_account_success, Toast.LENGTH_SHORT).show()
     }
 
     fun getSToken(): String? {

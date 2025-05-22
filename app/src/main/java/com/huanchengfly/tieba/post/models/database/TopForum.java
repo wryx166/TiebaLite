@@ -1,10 +1,16 @@
 package com.huanchengfly.tieba.post.models.database;
 
-import org.litepal.crud.LitePalSupport;
+import androidx.room.Entity;
+import androidx.room.PrimaryKey;
 
-public class TopForum extends LitePalSupport {
-    private String forumId;
+
+@Entity(tableName = "top_forum")
+public class TopForum {
+
+    @PrimaryKey(autoGenerate = true)
     private int id;
+    private String forumId;
+
 
     public TopForum(String forumId) {
         this.forumId = forumId;
@@ -12,6 +18,10 @@ public class TopForum extends LitePalSupport {
 
     public int getId() {
         return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
     }
 
     public String getForumId() {

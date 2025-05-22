@@ -7,6 +7,8 @@ plugins {
     autowire(libs.plugins.kotlin.serialization)
     autowire(libs.plugins.kotlin.parcelize)
     autowire(libs.plugins.hilt.android)
+//    autowire(libs.plugins.hilt.compiler)
+    id("dagger.hilt.android.plugin")
     autowire(libs.plugins.kotlin.ksp)
     autowire(libs.plugins.com.squareup.wire)
 }
@@ -253,7 +255,7 @@ dependencies {
     implementation(retrofit2.converter.wire)
 
     implementation(google.gson)
-    implementation(org.litepal.android.kotlin)
+
     implementation(com.jaredrummler.colorpicker)
 
     implementation(github.matisse)
@@ -264,4 +266,8 @@ dependencies {
 
     implementation(com.jakewharton.butterknife)
     kapt(com.jakewharton.butterknife.compiler)
+
+    implementation(androidx.room.room.runtime)
+    implementation(androidx.room.room.ktx)
+    ksp(androidx.room.room.compiler)
 }

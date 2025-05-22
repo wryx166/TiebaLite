@@ -9,6 +9,7 @@ import com.huanchengfly.tieba.post.arch.UiEvent
 import com.huanchengfly.tieba.post.arch.UiIntent
 import com.huanchengfly.tieba.post.arch.UiState
 import com.huanchengfly.tieba.post.models.database.History
+import com.huanchengfly.tieba.post.models.database.HistoryDao
 import com.huanchengfly.tieba.post.utils.DateTimeUtils
 import com.huanchengfly.tieba.post.utils.HistoryUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,14 +19,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flatMapConcat
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
-import org.litepal.LitePal
-import org.litepal.extension.deleteAll
 import javax.inject.Inject
 
 abstract class HistoryListViewModel :
@@ -46,67 +46,83 @@ abstract class HistoryListViewModel :
 
 @Stable
 @HiltViewModel
-class ThreadHistoryListViewModel @Inject constructor() : HistoryListViewModel() {
+class ThreadHistoryListViewModel @Inject constructor(
+    private val historyDao: HistoryDao
+) : HistoryListViewModel() {
     override fun createPartialChangeProducer(): PartialChangeProducer<HistoryListUiIntent, HistoryListPartialChange, HistoryListUiState> =
-        HistoryListPartialChangeProducer(HistoryUtil.TYPE_THREAD)
+        HistoryListPartialChangeProducer(HistoryUtil.TYPE_THREAD, historyDao)
 }
 
 @Stable
 @HiltViewModel
-class ForumHistoryListViewModel @Inject constructor() : HistoryListViewModel() {
+class ForumHistoryListViewModel @Inject constructor(
+    private val historyDao: HistoryDao
+) : HistoryListViewModel() {
     override fun createPartialChangeProducer(): PartialChangeProducer<HistoryListUiIntent, HistoryListPartialChange, HistoryListUiState> =
-        HistoryListPartialChangeProducer(HistoryUtil.TYPE_FORUM)
+        HistoryListPartialChangeProducer(HistoryUtil.TYPE_FORUM, historyDao)
 }
 
-private class HistoryListPartialChangeProducer(val type: Int) :
-    PartialChangeProducer<HistoryListUiIntent, HistoryListPartialChange, HistoryListUiState> {
+private class HistoryListPartialChangeProducer(
+    val type: Int,
+    private val historyDao: HistoryDao
+) : PartialChangeProducer<HistoryListUiIntent, HistoryListPartialChange, HistoryListUiState> {
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun toPartialChangeFlow(intentFlow: Flow<HistoryListUiIntent>): Flow<HistoryListPartialChange> =
         merge(
             intentFlow.filterIsInstance<HistoryListUiIntent.Refresh>()
-                .flatMapConcat { produceRefreshPartialChange() },
+                .flatMapLatest { produceRefreshPartialChange() },
             intentFlow.filterIsInstance<HistoryListUiIntent.LoadMore>()
-                .flatMapConcat { it.producePartialChange() },
+                .flatMapLatest { it.producePartialChange() },
             intentFlow.filterIsInstance<HistoryListUiIntent.Delete>()
-                .flatMapConcat { it.producePartialChange() },
+                .flatMapLatest { it.producePartialChange() },
             intentFlow.filterIsInstance<HistoryListUiIntent.DeleteAll>()
-                .flatMapConcat { produceDeleteAllPartialChange() },
+                .flatMapLatest { produceDeleteAllPartialChange() },
         )
 
-    private fun produceDeleteAllPartialChange() = flowOf(HistoryListPartialChange.DeleteAll)
+    private fun produceDeleteAllPartialChange() =
+        flow {
+            // 用 Room 删除全部替换 LitePal
+            historyDao.deleteAllByType(type)
+            emit(HistoryListPartialChange.DeleteAll)
+        }.flowOn(Dispatchers.IO)
 
-    private fun produceRefreshPartialChange() =
-        HistoryUtil.getFlow(type, 0)
-            .map<List<History>, HistoryListPartialChange.Refresh> { histories ->
+    private fun produceRefreshPartialChange(): Flow<HistoryListPartialChange> =
+        flow {
+            val histories = historyDao.getByTypePaged(type, 0, HistoryUtil.PAGE_SIZE)
+            val (today, before) = histories.partition { DateTimeUtils.isToday(it.timestamp) }
+            emit(
                 HistoryListPartialChange.Refresh.Success(
-                    histories.filter { DateTimeUtils.isToday(it.timestamp) },
-                    histories.filterNot { DateTimeUtils.isToday(it.timestamp) },
+                    today,
+                    before,
                     histories.size == HistoryUtil.PAGE_SIZE,
                 )
-            }
-            .catch { HistoryListPartialChange.Refresh.Failure(it) }
+            )
+        }.catch { HistoryListPartialChange.Refresh.Failure(it) }
+            .flowOn(Dispatchers.IO)
 
-    private fun HistoryListUiIntent.LoadMore.producePartialChange() =
-        HistoryUtil.getFlow(type, page)
-            .map<List<History>, HistoryListPartialChange.LoadMore> { histories ->
+    private fun HistoryListUiIntent.LoadMore.producePartialChange(): Flow<HistoryListPartialChange> =
+        flow {
+            val histories = historyDao.getByTypePaged(type, page, HistoryUtil.PAGE_SIZE)
+            emit(
                 HistoryListPartialChange.LoadMore.Success(
                     histories.filter { DateTimeUtils.isToday(it.timestamp) },
                     histories.filterNot { DateTimeUtils.isToday(it.timestamp) },
                     histories.size == HistoryUtil.PAGE_SIZE,
                     page
                 )
-            }
-            .onStart { HistoryListPartialChange.LoadMore.Start }
+            )
+        }.onStart { HistoryListPartialChange.LoadMore.Start }
             .catch { HistoryListPartialChange.LoadMore.Failure(it) }
+            .flowOn(Dispatchers.IO)
 
     private fun HistoryListUiIntent.Delete.producePartialChange() =
-        flow { emit(LitePal.deleteAll<History>("id = ?", "$id")) }
+        flow {
+            // 用 Room 按 id 删除替换 LitePal
+            val count = historyDao.deleteById(id)
+            if (count > 0) emit(HistoryListPartialChange.Delete.Success(id))
+            else emit(HistoryListPartialChange.Delete.Failure(IllegalStateException("未知错误")))
+        }.catch { emit(HistoryListPartialChange.Delete.Failure(it)) }
             .flowOn(Dispatchers.IO)
-            .map {
-                if (it > 0) HistoryListPartialChange.Delete.Success(id)
-                else HistoryListPartialChange.Delete.Failure(IllegalStateException("未知错误"))
-            }
-            .catch { emit(HistoryListPartialChange.Delete.Failure(it)) }
 }
 
 sealed interface HistoryListUiIntent : UiIntent {

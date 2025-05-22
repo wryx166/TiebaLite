@@ -45,13 +45,34 @@ import com.huanchengfly.tieba.post.utils.applicationMetaData
 import com.huanchengfly.tieba.post.utils.packageInfo
 import dagger.hilt.android.HiltAndroidApp
 import net.swiftzer.semver.SemVer
-import org.litepal.LitePal
 import kotlin.concurrent.thread
+
+import androidx.room.Room
+import com.huanchengfly.tieba.post.models.database.AccountDao
+import com.huanchengfly.tieba.post.models.database.AppDatabase
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 
 @HiltAndroidApp
 class App : Application(), SketchFactory {
     private val mActivityList: MutableList<Activity> = mutableListOf()
+
+    // Room 数据库单例
+    val database: AppDatabase by lazy {
+        Room.databaseBuilder(
+            applicationContext,
+            AppDatabase::class.java,
+            "tblite"
+        ).build()
+    }
+
+    // AccountDao 单例
+    val accountDao: AccountDao by lazy {
+        database.accountDao()
+    }
+
 
     @RequiresApi(api = 28)
     private fun setWebViewPath(context: Context) {
@@ -73,6 +94,7 @@ class App : Application(), SketchFactory {
         return null
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     override fun onCreate() {
         INSTANCE = this
         super.onCreate()
@@ -80,8 +102,7 @@ class App : Application(), SketchFactory {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             setWebViewPath(this)
         }
-        LitePal.initialize(this)
-        AccountUtil.init(this)
+        AccountUtil.init(accountDao)
         Config.init(this)
         val isSelfBuild = applicationMetaData.getBoolean("is_self_build")
         AppIconUtil.setIcon()
@@ -89,8 +110,8 @@ class App : Application(), SketchFactory {
         ThemeUtils.init(ThemeDelegate)
         registerActivityLifecycleCallbacks(ClipBoardLinkDetector)
         registerActivityLifecycleCallbacks(OAIDGetter)
-        thread {
-            BlockManager.init()
+        BlockManager.init(database.blockDao())
+        GlobalScope.launch {
             EmoticonManager.init(this@App)
         }
     }

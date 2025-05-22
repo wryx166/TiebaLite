@@ -14,6 +14,7 @@ import com.huanchengfly.tieba.post.arch.UiIntent
 import com.huanchengfly.tieba.post.arch.UiState
 import com.huanchengfly.tieba.post.models.database.Account
 import com.huanchengfly.tieba.post.utils.AccountUtil
+import com.huanchengfly.tieba.post.utils.AccountUtil.dao
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -81,8 +82,8 @@ class EditProfileViewModel @Inject constructor() :
                             constellation = user.birthday_info?.constellation
                             tiebaUid = user.tieba_uid
                             loadSuccess = true
-                            updateAll("uid = ?", uid)
                         }
+                        dao.update(account)
                         EditProfilePartialChange.Init.Success(account = account)
                     }
                     .onStart { emit(EditProfilePartialChange.Init.Loading) }

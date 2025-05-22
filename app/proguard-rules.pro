@@ -140,14 +140,6 @@
   public *;
 }
 
-# LitePal相关
--keep class org.litepal.** {
-    *;
-}
-
--keep class * extends org.litepal.crud.LitePalSupport {
-    *;
-}
 
 -keep class * implements com.google.gson.JsonDeserializer {
     *;

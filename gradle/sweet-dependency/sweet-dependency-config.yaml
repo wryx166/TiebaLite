@@ -376,3 +376,10 @@ libraries:
   junit:
     junit:
       version: 4.13.2
+  androidx.room:
+    room-runtime:
+      version: 2.6.1
+    room-ktx:
+      version: 2.6.1
+    room-compiler:
+      version: 2.6.1

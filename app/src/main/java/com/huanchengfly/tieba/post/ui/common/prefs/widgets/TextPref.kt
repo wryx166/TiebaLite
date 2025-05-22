@@ -28,8 +28,8 @@ import com.huanchengfly.tieba.post.ui.common.prefs.ifNotNullThen
  * @param leadingIcon Icon which is positioned at the start of the Pref
  * @param trailingContent Composable content which is positioned at the end of the Pref
  */
-@ExperimentalMaterialApi
 @Composable
+@ExperimentalMaterialApi
 fun TextPref(
     title: String,
     modifier: Modifier = Modifier,

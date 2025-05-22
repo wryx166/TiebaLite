@@ -14,6 +14,7 @@ import com.huanchengfly.tieba.post.arch.UiEvent
 import com.huanchengfly.tieba.post.arch.UiIntent
 import com.huanchengfly.tieba.post.arch.UiState
 import com.huanchengfly.tieba.post.models.database.SearchHistory
+import com.huanchengfly.tieba.post.models.database.SearchHistoryDao
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -29,17 +30,17 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
-import org.litepal.LitePal
-import org.litepal.extension.delete
-import org.litepal.extension.deleteAll
-import org.litepal.extension.find
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
 
-class SearchViewModel :
+class SearchViewModel @Inject constructor(
+    private val searchHistoryDao: SearchHistoryDao // 新增：通过依赖注入传入 Dao
+) :
     BaseViewModel<SearchUiIntent, SearchPartialChange, SearchUiState, SearchUiEvent>() {
     override fun createInitialState() = SearchUiState()
 
     override fun createPartialChangeProducer(): PartialChangeProducer<SearchUiIntent, SearchPartialChange, SearchUiState> =
-        SearchPartialChangeProducer
+        SearchPartialChangeProducer(searchHistoryDao)
 
     override fun dispatchEvent(partialChange: SearchPartialChange): UiEvent? =
         when (partialChange) {
@@ -60,7 +61,9 @@ class SearchViewModel :
             else -> null
         }
 
-    private object SearchPartialChangeProducer :
+    class SearchPartialChangeProducer(
+        private val searchHistoryDao: SearchHistoryDao
+    ) :
         PartialChangeProducer<SearchUiIntent, SearchPartialChange, SearchUiState> {
         @OptIn(ExperimentalCoroutinesApi::class)
         override fun toPartialChangeFlow(intentFlow: Flow<SearchUiIntent>): Flow<SearchPartialChange> =
@@ -78,18 +81,19 @@ class SearchViewModel :
             )
 
         private fun produceInitPartialChange() = flow<SearchPartialChange.Init> {
-            emit(
-                SearchPartialChange.Init.Success(
-                    LitePal.order("timestamp DESC").find<SearchHistory>()
-                )
-            )
+            val histories = withContext(Dispatchers.IO) {
+                searchHistoryDao.getAllOrderByTimestampDesc()
+            }
+            emit(SearchPartialChange.Init.Success(histories))
         }.catch {
             emit(SearchPartialChange.Init.Failure(it.getErrorCode(), it.getErrorMessage()))
         }
 
         private fun produceClearHistoryPartialChange() =
             flow<SearchPartialChange.ClearSearchHistory> {
-                LitePal.deleteAll<SearchHistory>()
+                withContext(Dispatchers.IO) {
+                    searchHistoryDao.deleteAll()
+                }
                 emit(SearchPartialChange.ClearSearchHistory.Success)
             }.catch {
                 emit(SearchPartialChange.ClearSearchHistory.Failure(it.getErrorMessage()))
@@ -97,7 +101,9 @@ class SearchViewModel :
 
         private fun SearchUiIntent.DeleteSearchHistory.producePartialChange() =
             flow<SearchPartialChange.DeleteSearchHistory> {
-                LitePal.delete<SearchHistory>(id)
+                withContext(Dispatchers.IO) {
+                    searchHistoryDao.deleteById(id)
+                }
                 emit(SearchPartialChange.DeleteSearchHistory.Success(id))
             }.catch {
                 emit(SearchPartialChange.DeleteSearchHistory.Failure(it.getErrorMessage()))
@@ -107,8 +113,16 @@ class SearchViewModel :
             flowOf(keyword.trim())
                 .onEach {
                     if (it.isNotBlank()) {
-                        runCatching {
-                            SearchHistory(it).saveOrUpdate("content = ?", it)
+                        // 用 Room 插入或更新替换 LitePal
+                        withContext(Dispatchers.IO) {
+                            val history = searchHistoryDao.getByContent(it)
+                            if (history == null) {
+                                searchHistoryDao.insert(SearchHistory(content = it))
+                            } else {
+                                searchHistoryDao.update(
+                                    history.copy(timestamp = System.currentTimeMillis())
+                                )
+                            }
                         }
                     }
                 }

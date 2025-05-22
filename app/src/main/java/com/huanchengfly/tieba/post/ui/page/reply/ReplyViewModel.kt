@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.lifecycle.viewModelScope
 import com.huanchengfly.tieba.post.App
 import com.huanchengfly.tieba.post.R
 import com.huanchengfly.tieba.post.api.models.AddThreadBean
@@ -21,6 +22,8 @@ import com.huanchengfly.tieba.post.arch.UiEvent
 import com.huanchengfly.tieba.post.arch.UiIntent
 import com.huanchengfly.tieba.post.arch.UiState
 import com.huanchengfly.tieba.post.components.ImageUploader
+import com.huanchengfly.tieba.post.models.database.Draft
+import com.huanchengfly.tieba.post.models.database.DraftDao
 import com.huanchengfly.tieba.post.repository.AddPostRepository
 import com.huanchengfly.tieba.post.utils.FileUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +39,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class ReplyPanelType {
@@ -53,7 +57,9 @@ enum class ReplyType {
 
 @Stable
 @HiltViewModel
-class ReplyViewModel @Inject constructor() :
+class ReplyViewModel @Inject constructor(
+    private val draftDao: DraftDao
+) :
     BaseViewModel<ReplyUiIntent, ReplyPartialChange, ReplyUiState, ReplyUiEvent>() {
     override fun createInitialState() = ReplyUiState()
 
@@ -85,6 +91,26 @@ class ReplyViewModel @Inject constructor() :
         )
 
         else -> null
+    }
+
+    fun saveDraft(hash: String, content: String) {
+        viewModelScope.launch {
+            draftDao.insertOrUpdate(Draft(hash, content))
+        }
+    }
+
+    fun loadDraft(hash: String, onLoaded: (String) -> Unit) {
+        viewModelScope.launch {
+            val draft = draftDao.getDraft(hash)
+            draft?.let { onLoaded(it.content) }
+        }
+    }
+
+    fun deleteDraft(hash: String, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            draftDao.deleteDraft(hash)
+            onDeleted()
+        }
     }
 
     private object ReplyPartialChangeProducer :

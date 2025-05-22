@@ -868,24 +868,25 @@ fun ThreadPage(
             thread {
                 runCatching {
                     if (threadTitle.isNotBlank()) {
-                        HistoryUtil.saveHistory(
-                            History(
-                                title = threadTitle,
-                                data = threadId.toString(),
-                                type = HistoryUtil.TYPE_THREAD,
-                                extras = ThreadHistoryInfoBean(
-                                    isSeeLz = isSeeLz,
-                                    pid = lastVisibilityPostId.toString(),
-                                    forumName = forum?.get { name },
-                                    floor = lastVisibilityPost?.get { floor }?.toString()
-                                ).toJson(),
-                                avatar = StringUtil.getAvatarUrl(author?.get { portrait }),
-                                username = author?.get { nameShow }
-                            ),
-                            async = true
-                        )
-                        savedHistory = true
-                        Log.i("ThreadPage", "saveHistory $lastVisibilityPostId")
+                        coroutineScope.launch {
+                            HistoryUtil.saveHistory(
+                                History(
+                                    title = threadTitle,
+                                    data = threadId.toString(),
+                                    type = HistoryUtil.TYPE_THREAD,
+                                    extras = ThreadHistoryInfoBean(
+                                        isSeeLz = isSeeLz,
+                                        pid = lastVisibilityPostId.toString(),
+                                        forumName = forum?.get { name },
+                                        floor = lastVisibilityPost?.get { floor }?.toString()
+                                    ).toJson(),
+                                    avatar = StringUtil.getAvatarUrl(author?.get { portrait }),
+                                    username = author?.get { nameShow }
+                                )
+                            )
+                            savedHistory = true
+                            Log.i("ThreadPage", "saveHistory $lastVisibilityPostId")
+                        }
                     }
                 }
             }
@@ -1439,7 +1440,9 @@ fun ThreadPage(
                                                 modifier = Modifier.height(IntrinsicSize.Min)
                                             ) {
                                                 Text(
-                                                    text = stringResource(R.string.title_thread_header,"${thread?.get { replyNum - 1 } ?: 0}"),
+                                                    text = stringResource(
+                                                        R.string.title_thread_header,
+                                                        "${thread?.get { replyNum - 1 } ?: 0}"),
                                                     modifier = Modifier
                                                         .padding(horizontal = 8.dp)
                                                         .debounceClickable(

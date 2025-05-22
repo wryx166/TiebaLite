@@ -8,13 +8,18 @@ import com.huanchengfly.tieba.post.api.models.protos.abstractText
 import com.huanchengfly.tieba.post.api.models.protos.plainText
 import com.huanchengfly.tieba.post.models.database.Block
 import com.huanchengfly.tieba.post.models.database.Block.Companion.getKeywords
-import org.litepal.LitePal
-import org.litepal.extension.delete
-import org.litepal.extension.findAllAsync
+import com.huanchengfly.tieba.post.models.database.BlockDao
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.regex.Pattern
 
 object BlockManager {
     private val blockList: MutableList<Block> = mutableListOf()
+    lateinit var blockDao: BlockDao
+
+    fun init(blockDao: BlockDao) {
+        this.blockDao = blockDao
+    }
 
     val blackList: List<Block>
         get() = blockList.filter { it.category == Block.CATEGORY_BLACK_LIST }
@@ -22,30 +27,24 @@ object BlockManager {
     val whiteList: List<Block>
         get() = blockList.filter { it.category == Block.CATEGORY_WHITE_LIST }
 
-    fun addBlock(block: Block) {
-        block.save()
-        blockList.add(block)
+    suspend fun addBlock(block: Block) {
+        withContext(Dispatchers.IO) {
+            val id = blockDao.insert(block)
+            blockList.add(block.copy(id = id))
+        }
     }
 
-    fun addBlockAsync(
-        block: Block,
-        callback: ((Boolean) -> Unit)? = null,
-    ) {
-        block.saveAsync()
-            .listen {
-                callback?.invoke(it)
-                blockList.add(block)
-            }
+    suspend fun removeBlock(id: Long) {
+        withContext(Dispatchers.IO) {
+            blockDao.deleteById(id)
+            blockList.removeAll { it.id == id }
+        }
     }
 
-    fun removeBlock(id: Long) {
-        LitePal.delete<Block>(id)
-        blockList.removeAll { it.id == id }
-    }
-
-    fun init() {
-        LitePal.findAllAsync<Block>().listen { blocks ->
-            blockList.addAll(blocks)
+    suspend fun init() {
+        withContext(Dispatchers.IO) {
+            blockList.clear()
+            blockList.addAll(blockDao.getAll())
         }
     }
 
